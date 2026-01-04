@@ -274,13 +274,13 @@ export default function ImmersiveEVI() {
         <source src="/video.mov" type="video/mp4" />
       </video>
       
-      {/* Mobile background video - portrait optimized */}
+      {/* Mobile background video - portrait optimized, zoomed to fill */}
       <video
         autoPlay
         loop
         muted
         playsInline
-        className="md:hidden absolute inset-0 w-full h-full object-cover z-0"
+        className="md:hidden absolute inset-0 w-full h-full object-cover z-0 scale-110"
       >
         <source src="/video-mobile.mp4" type="video/mp4" />
       </video>
@@ -291,7 +291,7 @@ export default function ImmersiveEVI() {
       {/* Content layer */}
       <div className="relative z-10 h-full w-full flex flex-col">
         {/* Header - Branding */}
-        <header className="absolute top-0 left-0 right-0 p-4 md:p-8 flex items-center justify-between">
+        <header className="absolute top-0 left-0 right-0 pt-12 md:pt-8 px-4 md:px-8 pb-4 flex items-center justify-between">
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
