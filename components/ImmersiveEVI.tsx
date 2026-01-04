@@ -553,14 +553,14 @@ export default function ImmersiveEVI() {
           )}
         </AnimatePresence>
 
-        {/* Emotion indicators */}
+        {/* Emotion indicators - hidden on mobile when transcript is open */}
         <AnimatePresence>
           {currentEmotions.length > 0 && isConnected && (
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
-              className="absolute right-8 top-1/2 -translate-y-1/2"
+              className={`absolute right-4 md:right-8 top-20 md:top-1/2 md:-translate-y-1/2 ${showTranscript ? 'hidden md:block' : ''}`}
             >
               <div className="glass rounded-2xl p-4 space-y-3">
                 <p className="text-xs text-white/40 font-body uppercase tracking-wider">Emotions</p>
