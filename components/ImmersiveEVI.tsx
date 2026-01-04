@@ -162,7 +162,7 @@ export default function ImmersiveEVI() {
         setMode("detailed");
         sendSessionSettings({
           context: {
-            text: "Provide thorough, detailed explanations. Take your time to explain concepts fully.",
+            text: "Provide thorough, detailed explanations. Take your time to explain concepts fully in 2-3 sentences.",
             type: "editable" as any,
           },
         });
@@ -178,7 +178,7 @@ export default function ImmersiveEVI() {
     
     sendSessionSettings({
       context: {
-        text: `SAY: "Sorry, uhm, quick thought..." or "Hold on, sorry uhm, I could I add..." then make your point.`,
+        text: `SAY: "Sorry, uhm, quick thought..." or "Hold on, sorry uhm, I could I add..." then make your point. DO NOT SAY "OKAY I CAN INTERRUPT YOU" just jump in with the interruption.`,
         type: "temporary" as any,
       },
     });
@@ -232,10 +232,20 @@ export default function ImmersiveEVI() {
     if (isConnecting) return; // Prevent double-clicks
     setIsConnecting(true);
     try {
-      // Auth is handled by VoiceProvider, just pass config if available
+      // Fetch access token from our secure API route
+      const response = await fetch("/api/hume-token");
+      if (!response.ok) {
+        throw new Error("Failed to get access token");
+      }
+      const { accessToken } = await response.json();
+      
       const configId = process.env.NEXT_PUBLIC_HUME_CONFIG_ID;
-      await connect(configId ? { configId } : undefined);
+      await connect({
+        auth: { type: "accessToken", value: accessToken },
+        ...(configId && { configId }),
+      });
     } catch (e) {
+      console.error("Connection error:", e);
       setIsConnecting(false);
     }
   }
