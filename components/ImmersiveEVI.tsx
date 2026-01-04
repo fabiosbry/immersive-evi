@@ -256,13 +256,13 @@ export default function ImmersiveEVI() {
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-black">
-      {/* Full-screen background video - rotated 90° right */}
+      {/* Desktop background video - rotated 90° right */}
       <video
         autoPlay
         loop
         muted
         playsInline
-        className="absolute inset-0 w-[100vh] h-[100vw] object-cover z-0 rotate-90 origin-center translate-x-[calc(50vw-50vh)]"
+        className="hidden md:block absolute inset-0 w-[100vh] h-[100vw] object-cover z-0 rotate-90 origin-center translate-x-[calc(50vw-50vh)]"
         style={{
           left: '50%',
           top: '50%',
@@ -273,6 +273,17 @@ export default function ImmersiveEVI() {
       >
         <source src="/video.mov" type="video/mp4" />
       </video>
+      
+      {/* Mobile background video - portrait optimized */}
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="md:hidden absolute inset-0 w-full h-full object-cover z-0"
+      >
+        <source src="/video-mobile.mp4" type="video/mp4" />
+      </video>
 
       {/* Dark overlay gradient */}
       <div className="absolute inset-0 video-overlay z-[1]" />
@@ -280,14 +291,14 @@ export default function ImmersiveEVI() {
       {/* Content layer */}
       <div className="relative z-10 h-full w-full flex flex-col">
         {/* Header - Branding */}
-        <header className="absolute top-0 left-0 right-0 p-8 flex items-center justify-between">
+        <header className="absolute top-0 left-0 right-0 p-4 md:p-8 flex items-center justify-between">
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
-            className="flex items-center gap-4"
+            className="flex items-center gap-2 md:gap-4"
           >
-            <h1 className="text-2xl font-display font-semibold tracking-tight text-white">
+            <h1 className="text-lg md:text-2xl font-display font-semibold tracking-tight text-white">
               peoplemakethings
             </h1>
             {isConnected && (
@@ -306,8 +317,8 @@ export default function ImmersiveEVI() {
 
         {/* Center - Voice Interface */}
         <motion.div 
-          className="flex-1 flex items-center justify-center"
-          animate={{ y: showTranscript ? -100 : 0 }}
+          className="flex-1 flex items-center justify-center px-4"
+          animate={{ y: showTranscript ? -60 : 0 }}
           transition={{ type: "spring", damping: 25, stiffness: 200 }}
         >
           <AnimatePresence mode="wait">
@@ -349,11 +360,11 @@ export default function ImmersiveEVI() {
                   
                   {/* Main button */}
                   <motion.div 
-                    className={`relative glass-strong rounded-full p-8 glow-subtle ${!isConnecting ? 'breathe-pulse' : ''}`}
+                    className={`relative glass-strong rounded-full p-6 md:p-8 glow-subtle ${!isConnecting ? 'breathe-pulse' : ''}`}
                     animate={isConnecting ? { opacity: [1, 0.7, 1] } : {}}
                     transition={isConnecting ? { duration: 1, repeat: Infinity } : {}}
                   >
-                    <Mic className={`w-12 h-12 ${isConnecting ? 'text-white/60' : 'text-white'}`} strokeWidth={1.5} />
+                    <Mic className={`w-10 h-10 md:w-12 md:h-12 ${isConnecting ? 'text-white/60' : 'text-white'}`} strokeWidth={1.5} />
                   </motion.div>
                   
                   {/* Hover ring - only when not connecting */}
@@ -406,12 +417,12 @@ export default function ImmersiveEVI() {
                   
                   {/* Main visualizer orb */}
                   <motion.div 
-                    className="glass-strong rounded-full p-10 glow-subtle relative overflow-hidden"
+                    className="glass-strong rounded-full p-6 md:p-10 glow-subtle relative overflow-hidden"
                     animate={isPlaying ? { scale: [1, 1.02, 1] } : {}}
                     transition={{ duration: 0.5, repeat: Infinity }}
                   >
                     {/* Audio bars */}
-                    <div className="flex items-center justify-center gap-[3px] h-16 w-32">
+                    <div className="flex items-center justify-center gap-[2px] md:gap-[3px] h-12 w-24 md:h-16 md:w-32">
                       {normalizedBars.map((value, i) => (
                         <motion.div
                           key={i}
@@ -441,48 +452,48 @@ export default function ImmersiveEVI() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="flex items-center gap-4"
+                  className="flex items-center gap-3 md:gap-4"
                 >
                   {/* Mute toggle */}
                   <motion.button
                     onClick={() => isMuted ? unmute() : mute()}
-                    className={`glass rounded-full p-4 transition-all ${
+                    className={`glass rounded-full p-3 md:p-4 transition-all ${
                       isMuted ? "bg-red-500/20 border-red-500/30" : "hover:bg-white/10"
                     }`}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
                     {isMuted ? (
-                      <MicOff className="w-5 h-5 text-red-400" strokeWidth={1.5} />
+                      <MicOff className="w-4 h-4 md:w-5 md:h-5 text-red-400" strokeWidth={1.5} />
                     ) : (
-                      <Mic className="w-5 h-5 text-white" strokeWidth={1.5} />
+                      <Mic className="w-4 h-4 md:w-5 md:h-5 text-white" strokeWidth={1.5} />
                     )}
                   </motion.button>
 
                   {/* Audio mute toggle */}
                   <motion.button
                     onClick={() => isAudioMuted ? unmuteAudio() : muteAudio()}
-                    className={`glass rounded-full p-4 transition-all ${
+                    className={`glass rounded-full p-3 md:p-4 transition-all ${
                       isAudioMuted ? "bg-amber-500/20 border-amber-500/30" : "hover:bg-white/10"
                     }`}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
                     {isAudioMuted ? (
-                      <VolumeX className="w-5 h-5 text-amber-400" strokeWidth={1.5} />
+                      <VolumeX className="w-4 h-4 md:w-5 md:h-5 text-amber-400" strokeWidth={1.5} />
                     ) : (
-                      <Volume2 className="w-5 h-5 text-white" strokeWidth={1.5} />
+                      <Volume2 className="w-4 h-4 md:w-5 md:h-5 text-white" strokeWidth={1.5} />
                     )}
                   </motion.button>
 
                   {/* Disconnect */}
                   <motion.button
                     onClick={() => disconnect()}
-                    className="glass rounded-full p-4 hover:bg-white/10 transition-all"
+                    className="glass rounded-full p-3 md:p-4 hover:bg-white/10 transition-all"
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    <X className="w-5 h-5 text-white" strokeWidth={1.5} />
+                    <X className="w-4 h-4 md:w-5 md:h-5 text-white" strokeWidth={1.5} />
                   </motion.button>
                 </motion.div>
               </motion.div>
@@ -496,7 +507,7 @@ export default function ImmersiveEVI() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => setShowTranscript(!showTranscript)}
-            className="absolute bottom-8 left-1/2 -translate-x-1/2 glass rounded-full px-6 py-3 text-xs text-white/60 hover:text-white/80 hover:bg-white/10 transition font-body uppercase tracking-wider"
+            className="absolute bottom-4 md:bottom-8 left-1/2 -translate-x-1/2 glass rounded-full px-4 md:px-6 py-2 md:py-3 text-[10px] md:text-xs text-white/60 hover:text-white/80 hover:bg-white/10 transition font-body uppercase tracking-wider"
           >
             {showTranscript ? "Hide transcript" : "Show transcript"}
           </motion.button>
@@ -510,9 +521,9 @@ export default function ImmersiveEVI() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 100 }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="absolute bottom-20 left-1/2 -translate-x-1/2 w-full max-w-lg"
+              className="absolute bottom-14 md:bottom-20 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-lg mx-4"
             >
-              <div className="glass-strong rounded-3xl p-6 max-h-64 overflow-y-auto">
+              <div className="glass-strong rounded-2xl md:rounded-3xl p-4 md:p-6 max-h-48 md:max-h-64 overflow-y-auto">
                 <div className="space-y-3">
                   {conversation.filter(m => !m.hidden).map((msg, i) => (
                     <motion.div
@@ -562,19 +573,19 @@ export default function ImmersiveEVI() {
               exit={{ opacity: 0, x: 20 }}
               className={`absolute right-4 md:right-8 top-20 md:top-1/2 md:-translate-y-1/2 ${showTranscript ? 'hidden md:block' : ''}`}
             >
-              <div className="glass rounded-2xl p-4 space-y-3">
-                <p className="text-xs text-white/40 font-body uppercase tracking-wider">Emotions</p>
-                {currentEmotions.map((emotion) => (
+              <div className="glass rounded-xl md:rounded-2xl p-3 md:p-4 space-y-2 md:space-y-3">
+                <p className="text-[10px] md:text-xs text-white/40 font-body uppercase tracking-wider">Emotions</p>
+                {currentEmotions.slice(0, 2).map((emotion) => (
                   <div key={emotion.name} className="space-y-1">
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="text-xs text-white/60 font-body capitalize">
+                    <div className="flex items-center justify-between gap-2 md:gap-4">
+                      <span className="text-[10px] md:text-xs text-white/60 font-body capitalize truncate max-w-[60px] md:max-w-none">
                         {emotion.name.replace(/_/g, " ")}
                       </span>
-                      <span className="text-xs text-white/40 font-body">
+                      <span className="text-[10px] md:text-xs text-white/40 font-body">
                         {Math.round(emotion.score * 100)}%
                       </span>
                     </div>
-                    <div className="w-24 h-1 bg-white/10 rounded-full overflow-hidden">
+                    <div className="w-16 md:w-24 h-1 bg-white/10 rounded-full overflow-hidden">
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${emotion.score * 100}%` }}
