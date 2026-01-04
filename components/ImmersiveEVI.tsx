@@ -3,7 +3,7 @@
 import { useVoice, VoiceReadyState } from "@humeai/voice-react";
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, X, Volume2, VolumeX } from "lucide-react";
+import { Mic, X } from "lucide-react";
 
 interface Message {
   role: "user" | "assistant";
@@ -447,46 +447,12 @@ export default function ImmersiveEVI() {
                   {isMuted ? "Microphone muted" : isPlaying ? "Speaking..." : "Listening..."}
                 </motion.p>
 
-                {/* Control buttons */}
+                {/* Control buttons - just disconnect */}
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="flex items-center gap-3 md:gap-4"
                 >
-                  {/* Mute toggle */}
-                  <motion.button
-                    onClick={() => isMuted ? unmute() : mute()}
-                    className={`glass rounded-full p-3 md:p-4 transition-all ${
-                      isMuted ? "bg-red-500/20 border-red-500/30" : "hover:bg-white/10"
-                    }`}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    {isMuted ? (
-                      <MicOff className="w-4 h-4 md:w-5 md:h-5 text-red-400" strokeWidth={1.5} />
-                    ) : (
-                      <Mic className="w-4 h-4 md:w-5 md:h-5 text-white" strokeWidth={1.5} />
-                    )}
-                  </motion.button>
-
-                  {/* Audio mute toggle */}
-                  <motion.button
-                    onClick={() => isAudioMuted ? unmuteAudio() : muteAudio()}
-                    className={`glass rounded-full p-3 md:p-4 transition-all ${
-                      isAudioMuted ? "bg-amber-500/20 border-amber-500/30" : "hover:bg-white/10"
-                    }`}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    {isAudioMuted ? (
-                      <VolumeX className="w-4 h-4 md:w-5 md:h-5 text-amber-400" strokeWidth={1.5} />
-                    ) : (
-                      <Volume2 className="w-4 h-4 md:w-5 md:h-5 text-white" strokeWidth={1.5} />
-                    )}
-                  </motion.button>
-
-                  {/* Disconnect */}
                   <motion.button
                     onClick={() => disconnect()}
                     className="glass rounded-full p-3 md:p-4 hover:bg-white/10 transition-all"
@@ -501,19 +467,19 @@ export default function ImmersiveEVI() {
           </AnimatePresence>
         </motion.div>
 
-        {/* Transcript toggle button */}
+        {/* Transcript toggle button - desktop only */}
         {isConnected && conversation.length > 0 && (
           <motion.button
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => setShowTranscript(!showTranscript)}
-            className="absolute bottom-4 md:bottom-8 left-1/2 -translate-x-1/2 glass rounded-full px-4 md:px-6 py-2 md:py-3 text-[10px] md:text-xs text-white/60 hover:text-white/80 hover:bg-white/10 transition font-body uppercase tracking-wider"
+            className="hidden md:block absolute bottom-8 left-1/2 -translate-x-1/2 glass rounded-full px-6 py-3 text-xs text-white/60 hover:text-white/80 hover:bg-white/10 transition font-body uppercase tracking-wider"
           >
             {showTranscript ? "Hide transcript" : "Show transcript"}
           </motion.button>
         )}
 
-        {/* Floating transcript panel */}
+        {/* Floating transcript panel - desktop only */}
         <AnimatePresence>
           {showTranscript && (
             <motion.div
@@ -521,9 +487,9 @@ export default function ImmersiveEVI() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 100 }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="absolute bottom-14 md:bottom-20 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-lg mx-4"
+              className="hidden md:block absolute bottom-20 left-1/2 -translate-x-1/2 w-full max-w-lg"
             >
-              <div className="glass-strong rounded-2xl md:rounded-3xl p-4 md:p-6 max-h-48 md:max-h-64 overflow-y-auto">
+              <div className="glass-strong rounded-3xl p-6 max-h-64 overflow-y-auto">
                 <div className="space-y-3">
                   {conversation.filter(m => !m.hidden).map((msg, i) => (
                     <motion.div
