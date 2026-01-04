@@ -438,14 +438,6 @@ export default function ImmersiveEVI() {
                   </motion.div>
                 </div>
 
-                {/* Status text */}
-                <motion.p 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-white/50 font-body text-sm tracking-wide"
-                >
-                  {isMuted ? "Microphone muted" : isPlaying ? "Speaking..." : "Listening..."}
-                </motion.p>
 
                 {/* Control buttons - just disconnect */}
                 <motion.div 
