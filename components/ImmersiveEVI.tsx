@@ -177,10 +177,7 @@ export default function ImmersiveEVI() {
     mute();
     
     sendSessionSettings({
-      context: {
-        text: `SAY: "Sorry, uhm, quick thought..." or "Hold on, sorry uhm, I could I add..." then make your point. DO NOT SAY "OKAY I CAN INTERRUPT YOU" just jump in with the interruption.`,
-        type: "temporary" as any,
-      },
+      systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
     });
     
     setTimeout(() => {
