@@ -280,7 +280,7 @@ export default function ImmersiveEVI() {
         loop
         muted
         playsInline
-        className="md:hidden absolute inset-0 w-full h-full object-cover z-0 scale-125"
+        className="md:hidden absolute inset-0 w-full h-full object-cover z-0 scale-150"
       >
         <source src="/video-mobile.mp4" type="video/mp4" />
       </video>
