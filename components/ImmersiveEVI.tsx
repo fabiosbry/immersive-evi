@@ -1,7 +1,7 @@
 "use client";
 
 import { useVoice, VoiceReadyState } from "@humeai/voice-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, X } from "lucide-react";
 
@@ -13,11 +13,16 @@ interface Message {
   hidden?: boolean;
 }
 
-// Keywords for instant detection
+// Keywords for instant detection (fast path - no LLM needed)
 const PAUSE_KEYWORDS = ["hold on", "wait", "one second", "let me think", "give me a moment", "pause"];
 const QUICK_KEYWORDS = ["quick", "brief", "short", "hurry", "rush", "fast"];
 const DETAILED_KEYWORDS = ["detail", "explain", "more time", "elaborate", "in depth", "how does that work", "what do you mean"];
 const INTERRUPT_KEYWORDS = ["interrupt me", "lost", "uhm uhm"];
+
+// LLM Judge configuration
+const JUDGE_DEBOUNCE_MS = 300; // How often to call the LLM judge
+const MIN_WORDS_FOR_JUDGE = 5; // Minimum words before calling LLM
+const MIN_SPEAKING_TIME_S = 0.8; // Minimum speaking time before calling LLM
 
 export default function ImmersiveEVI() {
   const {
@@ -49,9 +54,16 @@ export default function ImmersiveEVI() {
   const [showTranscript, setShowTranscript] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [showHeadphoneTip, setShowHeadphoneTip] = useState(false);
+  const [isInterrupting, setIsInterrupting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const interruptCooldownRef = useRef<boolean>(false);
   const micUnmuteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // LLM Judge state
+  const turnStartTimeRef = useRef<number>(0);
+  const lastJudgeTimeRef = useRef<number>(0);
+  const judgeAbortControllerRef = useRef<AbortController | null>(null);
+  const conversationHistoryRef = useRef<{ role: string; content: string }[]>([]);
 
   const isConnected = readyState === VoiceReadyState.OPEN;
   
@@ -83,6 +95,13 @@ export default function ImmersiveEVI() {
     if (lastMessage.type === "user_message") {
       const content = (lastMessage as any).message?.content || "";
       const emotions = extractEmotions(lastMessage);
+      const isInterim = (lastMessage as any).interim === true;
+      
+      // Initialize turn start time when user starts speaking
+      if (isInterim && turnStartTimeRef.current === 0) {
+        turnStartTimeRef.current = Date.now();
+        console.log("🎤 User turn started");
+      }
       
       setConversation((prev) => {
         const lastConv = prev[prev.length - 1];
@@ -93,7 +112,13 @@ export default function ImmersiveEVI() {
       });
 
       setCurrentEmotions(emotions);
-      detectKeywords(content);
+      detectKeywords(content, isInterim);
+      
+      // Track conversation history for LLM context (on final message)
+      if (!isInterim && content) {
+        conversationHistoryRef.current.push({ role: "user", content });
+        turnStartTimeRef.current = 0; // Reset for next turn
+      }
     }
 
     if (lastMessage.type === "assistant_message") {
@@ -106,6 +131,16 @@ export default function ImmersiveEVI() {
         }
         return [...prev, { role: "assistant", content, timestamp: new Date(), hidden: isPaused }];
       });
+      
+      // Track assistant response for LLM context
+      if (content) {
+        const lastHistory = conversationHistoryRef.current[conversationHistoryRef.current.length - 1];
+        if (lastHistory?.role === "assistant") {
+          lastHistory.content += " " + content;
+        } else {
+          conversationHistoryRef.current.push({ role: "assistant", content });
+        }
+      }
     }
   }, [messages]);
 
@@ -128,9 +163,98 @@ export default function ImmersiveEVI() {
     }
   }
 
-  function detectKeywords(text: string) {
+  // LLM-based judge for complex speech analysis
+  const callLLMJudge = useCallback(async (speech: string) => {
+    // Skip if already triggered interrupt this turn
+    if (interruptCooldownRef.current) return;
+    
+    const wordCount = speech.split(/\s+/).filter(Boolean).length;
+    if (wordCount < MIN_WORDS_FOR_JUDGE) return;
+    
+    const speakingTime = (Date.now() - turnStartTimeRef.current) / 1000;
+    if (speakingTime < MIN_SPEAKING_TIME_S) return;
+    
+    // Debounce
+    const now = Date.now();
+    if (now - lastJudgeTimeRef.current < JUDGE_DEBOUNCE_MS) return;
+    lastJudgeTimeRef.current = now;
+    
+    // Cancel any pending request
+    if (judgeAbortControllerRef.current) {
+      judgeAbortControllerRef.current.abort();
+    }
+    judgeAbortControllerRef.current = new AbortController();
+    
+    try {
+      const response = await fetch("/api/judge-speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          speech,
+          conversationHistory: conversationHistoryRef.current.slice(-2),
+          speakingTime,
+        }),
+        signal: judgeAbortControllerRef.current.signal,
+      });
+      
+      if (!response.ok) {
+        console.warn("LLM Judge error:", response.status);
+        return;
+      }
+      
+      const { action, stats } = await response.json();
+      console.log(`🤖 LLM Judge: ${action}`, stats);
+      
+      // Handle LLM-detected actions (these catch nuanced cases the keywords miss)
+      switch (action) {
+        case "INTERRUPT":
+          if (!interruptCooldownRef.current) {
+            console.log("⚡ LLM triggered INTERRUPT");
+            triggerInterrupt("LLM analysis");
+          }
+          break;
+        case "PAUSE":
+          if (!isPaused) {
+            console.log("⏸️ LLM triggered PAUSE");
+            triggerPause();
+          }
+          break;
+        case "QUICK":
+          if (mode !== "quick") {
+            console.log("⚡ LLM triggered QUICK mode");
+            setMode("quick");
+            sendSessionSettings({
+              context: {
+                text: "Keep responses very brief and concise. Answer in 1 short sentence, maximum 2 sentences.",
+                type: "editable" as any,
+              },
+            });
+          }
+          break;
+        case "DETAILED":
+          if (mode !== "detailed") {
+            console.log("📚 LLM triggered DETAILED mode");
+            setMode("detailed");
+            sendSessionSettings({
+              context: {
+                text: "Provide thorough, detailed explanations. Take your time to explain concepts fully in 2-3 sentences.",
+                type: "editable" as any,
+              },
+            });
+          }
+          break;
+      }
+    } catch (error) {
+      if ((error as Error).name !== "AbortError") {
+        console.warn("LLM Judge fetch error:", error);
+      }
+    }
+  }, [isPaused, mode, sendSessionSettings]);
+
+  function detectKeywords(text: string, isInterim: boolean = false) {
     const lower = text.toLowerCase();
 
+    // Fast path: keyword detection (instant, no LLM)
     if (!interruptCooldownRef.current) {
       for (const kw of INTERRUPT_KEYWORDS) {
         if (lower.includes(kw)) {
@@ -175,11 +299,18 @@ export default function ImmersiveEVI() {
         return;
       }
     }
+    
+    // Slow path: LLM judge for nuanced detection (debounced)
+    // Only call on interim messages to catch issues while user is speaking
+    if (isInterim) {
+      callLLMJudge(text);
+    }
   }
   
   function triggerInterrupt(keyword: string) {
     console.log(`🛑 INTERRUPT triggered (keyword: "${keyword}")`);
     interruptCooldownRef.current = true;
+    setIsInterrupting(true);
     mute();
     
     sendSessionSettings({
@@ -191,11 +322,12 @@ export default function ImmersiveEVI() {
       
       // Reset system prompt to normal after the interrupt turn
       sendSessionSettings({
-        systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF.`,
+        systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF. CRITICAL: WHEN INTERRUPTING; ALWAYS start with "Sorry to interrupt, but" followed by your thought.`,
       });
       
       setTimeout(() => {
         interruptCooldownRef.current = false;
+        setIsInterrupting(false);
       }, 1000);
     }, 6000);
   }
@@ -430,10 +562,12 @@ export default function ImmersiveEVI() {
                     animate={isPlaying && !isPaused ? { scale: [1, 1.02, 1] } : {}}
                     transition={{ duration: 0.5, repeat: Infinity }}
                   >
-                    {isPaused ? (
-                      /* Waiting text when paused */
+                    {isPaused || isInterrupting ? (
+                      /* Waiting/Interrupting text */
                       <div className="flex items-center justify-center h-12 w-24 md:h-16 md:w-32">
-                        <span className="text-white/60 text-sm md:text-base font-body">waiting...</span>
+                        <span className="text-white/60 text-sm md:text-base font-body">
+                          {isInterrupting ? "interrupting..." : "waiting..."}
+                        </span>
                       </div>
                     ) : (
                       /* Audio bars */
