@@ -64,6 +64,7 @@ export default function ImmersiveEVI() {
   const lastJudgeTimeRef = useRef<number>(0);
   const judgeAbortControllerRef = useRef<AbortController | null>(null);
   const conversationHistoryRef = useRef<{ role: string; content: string }[]>([]);
+  const chatIdRef = useRef<string | null>(null);
 
   const isConnected = readyState === VoiceReadyState.OPEN;
   
@@ -85,6 +86,15 @@ export default function ImmersiveEVI() {
 
     const lastMessage = messages[messages.length - 1];
     if (!("type" in lastMessage)) return;
+
+    // Capture chat ID for direct API calls
+    if (lastMessage.type === "chat_metadata") {
+      const chatId = (lastMessage as any).chatId;
+      if (chatId) {
+        chatIdRef.current = chatId;
+        console.log("📝 Chat ID captured:", chatId.slice(0, 8) + "...");
+      }
+    }
 
     if (lastMessage.type === "user_interruption") {
       console.log("🛑 user_interruption - stopping audio immediately");
@@ -202,7 +212,7 @@ export default function ImmersiveEVI() {
         return;
       }
       
-      const { action, stats } = await response.json();
+      const { action, interruptResponse, stats } = await response.json();
       console.log(`🤖 LLM Judge: ${action}`, stats);
       
       // Handle LLM-detected actions (these catch nuanced cases the keywords miss)
@@ -210,7 +220,10 @@ export default function ImmersiveEVI() {
         case "INTERRUPT":
           if (!interruptCooldownRef.current) {
             console.log("⚡ LLM triggered INTERRUPT");
-            triggerInterrupt("LLM analysis");
+            if (interruptResponse) {
+              console.log("💬 LLM generated response:", interruptResponse);
+            }
+            triggerInterrupt("LLM analysis", interruptResponse);
           }
           break;
         case "PAUSE":
@@ -307,29 +320,67 @@ export default function ImmersiveEVI() {
     }
   }
   
-  function triggerInterrupt(keyword: string) {
+  async function triggerInterrupt(keyword: string, llmResponse?: string) {
     console.log(`🛑 INTERRUPT triggered (keyword: "${keyword}")`);
     interruptCooldownRef.current = true;
     setIsInterrupting(true);
     mute();
     
-    sendSessionSettings({
-      systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
-    });
-    
-    setTimeout(() => {
-      unmute();
+    // If we have a pre-generated LLM response, send it directly to EVI's TTS
+    if (llmResponse && chatIdRef.current) {
+      console.log("📢 Sending LLM response to TTS:", llmResponse);
       
-      // Reset system prompt to normal after the interrupt turn
+      try {
+        const response = await fetch("/api/send-assistant-input", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chatId: chatIdRef.current,
+            text: llmResponse,
+          }),
+        });
+        
+        if (response.ok) {
+          console.log("✅ LLM response sent to EVI TTS");
+        } else {
+          console.warn("⚠️ Failed to send LLM response, falling back to EVI LLM");
+          // Fall back to EVI's LLM if our API fails
+          sendSessionSettings({
+            systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought.`,
+          });
+        }
+      } catch (error) {
+        console.error("Error sending to TTS:", error);
+      }
+      
+      // Shorter timeout since we're not waiting for EVI's LLM
+      setTimeout(() => {
+        unmute();
+        setTimeout(() => {
+          interruptCooldownRef.current = false;
+          setIsInterrupting(false);
+        }, 1000);
+      }, 3000);
+    } else {
+      // No LLM response provided, use EVI's LLM (original behavior)
       sendSessionSettings({
-        systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF. CRITICAL: WHEN INTERRUPTING; ALWAYS start with "Sorry to interrupt, but" followed by your thought.`,
+        systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
       });
       
       setTimeout(() => {
-        interruptCooldownRef.current = false;
-        setIsInterrupting(false);
-      }, 1000);
-    }, 6000);
+        unmute();
+        
+        // Reset system prompt to normal after the interrupt turn
+        sendSessionSettings({
+          systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF. CRITICAL: WHEN INTERRUPTING; ALWAYS start with "Sorry to interrupt, but" followed by your thought.`,
+        });
+        
+        setTimeout(() => {
+          interruptCooldownRef.current = false;
+          setIsInterrupting(false);
+        }, 1000);
+      }, 6000);
+    }
   }
   
   function triggerPause() {

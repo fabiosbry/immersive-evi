@@ -29,6 +29,22 @@ CONTINUE - normal conversation (default)
 
 Output ONLY one word: INTERRUPT, PAUSE, QUICK, DETAILED, or CONTINUE`;
 
+const INTERRUPT_RESPONSE_PROMPT = `You are a helpful voice assistant. The user seems to be struggling, confused, or rambling. 
+Generate a brief, empathetic interruption to help them.
+
+Rules:
+- Start naturally with something like "Hey," or "Sorry to jump in," or "Let me help—"
+- Keep it to 1-2 short sentences max (under 25 words total)
+- Be warm and supportive, not condescending
+- If they seem confused, offer to clarify or simplify
+- If they're rambling, gently redirect to the main point
+- Sound natural and conversational, like a helpful friend
+
+Examples:
+- "Hey, let me jump in here—sounds like you might be overthinking this. What's the main thing you're trying to do?"
+- "Sorry to interrupt, but I think I can help. Let's take this step by step."
+- "Hold on—I think I lost you there. Can you tell me what you're actually trying to achieve?"`;
+
 export async function POST(request: NextRequest) {
   const groqApiKey = process.env.GROQ_API_KEY;
 
@@ -66,13 +82,13 @@ export async function POST(request: NextRequest) {
 
     // Format recent conversation history
     const historyText = conversationHistory
-      .slice(-2)
+      .slice(-4)
       .map((m: { role: string; content: string }) => 
         `${m.role.toUpperCase()}: ${m.content}`
       )
       .join("\n");
 
-    const prompt = `Context: ${historyText || "No prior context"}
+    const judgePrompt = `Context: ${historyText || "No prior context"}
 
 USER SPEECH: "${speech}"
 
@@ -82,17 +98,18 @@ What should happen? INTERRUPT, PAUSE, QUICK, DETAILED, or CONTINUE.`;
 
     const groq = new Groq({ apiKey: groqApiKey });
 
-    const response = await groq.chat.completions.create({
+    // First call: Judge the speech
+    const judgeResponse = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: JUDGE_SYSTEM_PROMPT },
-        { role: "user", content: prompt }
+        { role: "user", content: judgePrompt }
       ],
       max_tokens: 5,
       temperature: 0,
     });
 
-    const result = response.choices[0]?.message?.content?.trim().toUpperCase() || "CONTINUE";
+    const result = judgeResponse.choices[0]?.message?.content?.trim().toUpperCase() || "CONTINUE";
     
     // Parse the result to ensure it's one of the valid options
     let action: "INTERRUPT" | "PAUSE" | "QUICK" | "DETAILED" | "CONTINUE" = "CONTINUE";
@@ -101,8 +118,38 @@ What should happen? INTERRUPT, PAUSE, QUICK, DETAILED, or CONTINUE.`;
     else if (result.includes("QUICK")) action = "QUICK";
     else if (result.includes("DETAILED")) action = "DETAILED";
 
+    // If INTERRUPT, generate the response text for TTS
+    let interruptResponse: string | undefined;
+    
+    if (action === "INTERRUPT") {
+      const responsePrompt = `Conversation so far:
+${historyText || "No prior context"}
+
+USER (currently speaking, struggling): "${speech}"
+
+Generate a helpful interruption response:`;
+
+      const responseCall = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: INTERRUPT_RESPONSE_PROMPT },
+          { role: "user", content: responsePrompt }
+        ],
+        max_tokens: 60,
+        temperature: 0.7,
+      });
+
+      interruptResponse = responseCall.choices[0]?.message?.content?.trim();
+      
+      // Clean up the response - remove quotes if present
+      if (interruptResponse) {
+        interruptResponse = interruptResponse.replace(/^["']|["']$/g, '');
+      }
+    }
+
     return NextResponse.json({
       action,
+      interruptResponse,
       stats: {
         wordCount,
         fillerCount,
@@ -117,4 +164,3 @@ What should happen? INTERRUPT, PAUSE, QUICK, DETAILED, or CONTINUE.`;
     );
   }
 }
-
