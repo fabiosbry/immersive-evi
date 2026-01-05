@@ -51,6 +51,8 @@ export default function ImmersiveEVI() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const interruptCooldownRef = useRef<boolean>(false);
   const micUnmuteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const mobileVideoRef = useRef<HTMLVideoElement>(null);
+  const videoDirectionRef = useRef<1 | -1>(1);
 
   const isConnected = readyState === VoiceReadyState.OPEN;
   
@@ -60,6 +62,43 @@ export default function ImmersiveEVI() {
       setIsConnecting(false);
     }
   }, [isConnected]);
+
+  // Ping-pong video effect for mobile
+  useEffect(() => {
+    const video = mobileVideoRef.current;
+    if (!video) return;
+
+    let animationId: number;
+    const step = 1 / 30; // ~30fps playback when reversing
+
+    const handleEnded = () => {
+      // Video reached end, start reversing
+      videoDirectionRef.current = -1;
+      reversePlay();
+    };
+
+    const reversePlay = () => {
+      if (!video || videoDirectionRef.current !== -1) return;
+      
+      video.currentTime -= step;
+      
+      if (video.currentTime <= 0) {
+        // Reached beginning, play forward again
+        video.currentTime = 0;
+        videoDirectionRef.current = 1;
+        video.play();
+      } else {
+        animationId = requestAnimationFrame(reversePlay);
+      }
+    };
+
+    video.addEventListener('ended', handleEnded);
+
+    return () => {
+      video.removeEventListener('ended', handleEnded);
+      if (animationId) cancelAnimationFrame(animationId);
+    };
+  }, []);
 
   // Process messages from Hume
   useEffect(() => {
@@ -271,10 +310,10 @@ export default function ImmersiveEVI() {
         <source src="/video.mov" type="video/mp4" />
       </video>
       
-      {/* Mobile background video - portrait optimized, zoomed to fill */}
+      {/* Mobile background video - portrait optimized, zoomed to fill, ping-pong loop */}
       <video
+        ref={mobileVideoRef}
         autoPlay
-        loop
         muted
         playsInline
         className="md:hidden absolute inset-0 w-full h-full object-cover z-0 scale-110"
@@ -415,23 +454,30 @@ export default function ImmersiveEVI() {
                   {/* Main visualizer orb */}
                   <motion.div 
                     className="glass-strong rounded-full p-6 md:p-10 glow-subtle relative overflow-hidden"
-                    animate={isPlaying ? { scale: [1, 1.02, 1] } : {}}
+                    animate={isPlaying && !isPaused ? { scale: [1, 1.02, 1] } : {}}
                     transition={{ duration: 0.5, repeat: Infinity }}
                   >
-                    {/* Audio bars */}
-                    <div className="flex items-center justify-center gap-[2px] md:gap-[3px] h-12 w-24 md:h-16 md:w-32">
-                      {normalizedBars.map((value, i) => (
-                        <motion.div
-                          key={i}
-                          className="w-1 rounded-full bg-white/80"
-                          animate={{ 
-                            height: `${Math.max(8, value * 64)}px`,
-                            opacity: 0.4 + value * 0.6
-                          }}
-                          transition={{ duration: 0.05, ease: "easeOut" }}
-                        />
-                      ))}
-                    </div>
+                    {isPaused ? (
+                      /* Waiting text when paused */
+                      <div className="flex items-center justify-center h-12 w-24 md:h-16 md:w-32">
+                        <span className="text-white/60 text-sm md:text-base font-body">waiting...</span>
+                      </div>
+                    ) : (
+                      /* Audio bars */
+                      <div className="flex items-center justify-center gap-[2px] md:gap-[3px] h-12 w-24 md:h-16 md:w-32">
+                        {normalizedBars.map((value, i) => (
+                          <motion.div
+                            key={i}
+                            className="w-1 rounded-full bg-white/80"
+                            animate={{ 
+                              height: `${Math.max(8, value * 64)}px`,
+                              opacity: 0.4 + value * 0.6
+                            }}
+                            transition={{ duration: 0.05, ease: "easeOut" }}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </motion.div>
                 </div>
 
