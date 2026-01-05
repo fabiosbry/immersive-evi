@@ -247,8 +247,8 @@ export default function ImmersiveEVI() {
     }
   }
 
-  // Audio visualizer data
-  const visualizerBars = isConnected ? (isMuted ? fft : micFft) : [];
+  // Audio visualizer data - freeze when paused
+  const visualizerBars = isConnected && !isPaused ? (isMuted ? fft : micFft) : [];
   const normalizedBars = visualizerBars.slice(0, 32).map((v, i) => Math.max(0.15, v));
 
   return (
