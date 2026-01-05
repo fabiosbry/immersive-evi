@@ -67,7 +67,6 @@ export default function ImmersiveEVI() {
     }
   }, [isConnected]);
 
-
   // Process messages from Hume
   useEffect(() => {
     if (!messages.length) return;
@@ -189,6 +188,12 @@ export default function ImmersiveEVI() {
     
     setTimeout(() => {
       unmute();
+      
+      // Reset system prompt to normal after the interrupt turn
+      sendSessionSettings({
+        systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF.`,
+      });
+      
       setTimeout(() => {
         interruptCooldownRef.current = false;
       }, 1000);
@@ -404,7 +409,7 @@ export default function ImmersiveEVI() {
                 {/* Listening visualizer container */}
                 <div className="relative">
                   {/* Pulse rings */}
-                  {isPlaying && (
+                  {isPlaying && !isPaused && (
                     <>
                       <motion.div
                         className="absolute inset-0 rounded-full border border-white/20"
@@ -592,4 +597,3 @@ export default function ImmersiveEVI() {
     </main>
   );
 }
-
