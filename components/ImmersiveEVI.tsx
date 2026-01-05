@@ -69,24 +69,30 @@ export default function ImmersiveEVI() {
     }
   }, [isConnected]);
 
-  // Ping-pong video effect for mobile
+  // Ping-pong video effect for mobile - smooth reverse at real-time speed
   useEffect(() => {
     const video = mobileVideoRef.current;
     if (!video) return;
 
     let animationId: number;
-    const step = 1 / 30; // ~30fps playback when reversing
+    let lastTime: number | null = null;
 
     const handleEnded = () => {
       // Video reached end, start reversing
       videoDirectionRef.current = -1;
+      lastTime = null;
       reversePlay();
     };
 
-    const reversePlay = () => {
+    const reversePlay = (timestamp?: number) => {
       if (!video || videoDirectionRef.current !== -1) return;
       
-      video.currentTime -= step;
+      if (lastTime !== null && timestamp) {
+        // Calculate real delta time in seconds
+        const deltaTime = (timestamp - lastTime) / 1000;
+        video.currentTime -= deltaTime;
+      }
+      lastTime = timestamp || performance.now();
       
       if (video.currentTime <= 0) {
         // Reached beginning, play forward again
