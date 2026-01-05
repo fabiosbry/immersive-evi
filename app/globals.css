@@ -32,24 +32,30 @@ body {
   display: none;
 }
 
-/* Glass morphism effect - macOS style */
+/* Glass morphism effect - ultra transparent */
 .glass {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .glass-strong {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(80px) saturate(150%);
-  -webkit-backdrop-filter: blur(80px) saturate(150%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.01);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: none;
 }
 
 /* Desktop glass - slightly more visible */
 @media (min-width: 768px) {
+  .glass {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
   .glass-strong {
     background: rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(60px) saturate(180%);
@@ -58,12 +64,18 @@ body {
   }
 }
 
-/* Subtle glow effect */
+/* Subtle glow effect - minimal on mobile */
 .glow-subtle {
-  box-shadow: 
-    0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 4px 30px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+@media (min-width: 768px) {
+  .glow-subtle {
+    box-shadow: 
+      0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 4px 30px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
 }
 
 /* Breathing pulse animation */
