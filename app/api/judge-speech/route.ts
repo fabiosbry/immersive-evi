@@ -33,7 +33,7 @@ const INTERRUPT_RESPONSE_PROMPT = `You are a helpful voice assistant. The user s
 Generate a brief, empathetic interruption to help them.
 
 Rules:
-- Start naturally with something like "Hey," or "Sorry to jump in," or "Let me help—"
+- Start naturally with something like "Hold on," or "Sorry to jump in," or "Let me help—"
 - Keep it to 1-2 short sentences max (under 25 words total)
 - Be warm and supportive, not condescending
 - If they seem confused, offer to clarify or simplify

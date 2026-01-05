@@ -111,6 +111,11 @@ export default function ImmersiveEVI() {
       if (isInterim && turnStartTimeRef.current === 0) {
         turnStartTimeRef.current = Date.now();
         console.log("🎤 User turn started");
+        
+        // Resume from interrupt when user starts speaking
+        if (isInterrupting) {
+          resumeFromInterrupt();
+        }
       }
       
       setConversation((prev) => {
@@ -321,66 +326,52 @@ export default function ImmersiveEVI() {
   }
   
   async function triggerInterrupt(keyword: string, llmResponse?: string) {
-    console.log(`🛑 INTERRUPT triggered (keyword: "${keyword}")`);
+    if (!llmResponse || !chatIdRef.current) {
+      console.log("⚠️ No LLM response or chatId, skipping interrupt");
+      return;
+    }
+    
+    console.log(`🛑 INTERRUPT triggered (${keyword})`);
     interruptCooldownRef.current = true;
     setIsInterrupting(true);
+    
+    // 1. Mute user mic
     mute();
     
-    // If we have a pre-generated LLM response, send it directly to EVI's TTS
-    if (llmResponse && chatIdRef.current) {
-      console.log("📢 Sending LLM response to TTS:", llmResponse);
-      
-      try {
-        const response = await fetch("/api/send-assistant-input", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chatId: chatIdRef.current,
-            text: llmResponse,
-          }),
-        });
-        
-        if (response.ok) {
-          console.log("✅ LLM response sent to EVI TTS");
-        } else {
-          console.warn("⚠️ Failed to send LLM response, falling back to EVI LLM");
-          // Fall back to EVI's LLM if our API fails
-          sendSessionSettings({
-            systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought.`,
-          });
-        }
-      } catch (error) {
-        console.error("Error sending to TTS:", error);
-      }
-      
-      // Shorter timeout since we're not waiting for EVI's LLM
-      setTimeout(() => {
-        unmute();
-        setTimeout(() => {
-          interruptCooldownRef.current = false;
-          setIsInterrupting(false);
-        }, 1000);
-      }, 3000);
-    } else {
-      // No LLM response provided, use EVI's LLM (original behavior)
-      sendSessionSettings({
-        systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
+    // 2. Pause assistant (stop any ongoing response)
+    pauseAssistant();
+    
+    // 3. Send Llama-generated message to EVI TTS
+    console.log("📢 Sending to TTS:", llmResponse);
+    try {
+      await fetch("/api/send-assistant-input", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chatId: chatIdRef.current,
+          text: llmResponse,
+        }),
       });
-      
-      setTimeout(() => {
-        unmute();
-        
-        // Reset system prompt to normal after the interrupt turn
-        sendSessionSettings({
-          systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF. CRITICAL: WHEN INTERRUPTING; ALWAYS start with "Sorry to interrupt, but" followed by your thought.`,
-        });
-        
-        setTimeout(() => {
-          interruptCooldownRef.current = false;
-          setIsInterrupting(false);
-        }, 1000);
-      }, 6000);
+      console.log("✅ Sent to EVI TTS");
+    } catch (error) {
+      console.error("Error sending to TTS:", error);
     }
+    
+    // 4. User speaking will trigger resumeFromInterrupt (handled in message processing)
+  }
+  
+  function resumeFromInterrupt() {
+    if (!isInterrupting) return;
+    
+    console.log("▶️ User speaking - resuming from interrupt");
+    unmute();
+    resumeAssistant();
+    setIsInterrupting(false);
+    
+    // Reset cooldown after a short delay to prevent re-triggering immediately
+    setTimeout(() => {
+      interruptCooldownRef.current = false;
+    }, 2000);
   }
   
   function triggerPause() {
