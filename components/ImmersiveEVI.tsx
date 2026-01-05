@@ -17,7 +17,7 @@ interface Message {
 const PAUSE_KEYWORDS = ["hold on", "wait", "one second", "let me think", "give me a moment", "pause"];
 const QUICK_KEYWORDS = ["quick", "brief", "short", "hurry", "rush", "fast"];
 const DETAILED_KEYWORDS = ["detail", "explain", "more time", "elaborate", "in depth", "how does that work", "what do you mean"];
-const INTERRUPT_KEYWORDS = ["interrupt me", "lost", "uhm uhm"];
+const INTERRUPT_KEYWORDS = ["interrupt me", "lost", "uhm uhm", "yesterday"];
 
 export default function ImmersiveEVI() {
   const {
