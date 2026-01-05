@@ -69,46 +69,42 @@ export default function ImmersiveEVI() {
     }
   }, [isConnected]);
 
-  // Ping-pong video effect for mobile - smooth reverse at real-time speed
+  // Smooth loop for mobile video - fade out at end, restart with fade in
   useEffect(() => {
     const video = mobileVideoRef.current;
     if (!video) return;
 
-    let animationId: number;
-    let lastTime: number | null = null;
+    const handleTimeUpdate = () => {
+      // Start fading out 1 second before end
+      if (video.duration && video.currentTime > video.duration - 1) {
+        const fadeProgress = (video.duration - video.currentTime);
+        video.style.opacity = String(fadeProgress);
+      } else {
+        video.style.opacity = '1';
+      }
+    };
 
     const handleEnded = () => {
-      // Video reached end, start reversing
-      videoDirectionRef.current = -1;
-      lastTime = null;
-      reversePlay();
+      // Fade in from beginning
+      video.style.opacity = '0';
+      video.currentTime = 0;
+      video.play();
+      // Smooth fade in
+      let opacity = 0;
+      const fadeIn = () => {
+        opacity += 0.05;
+        video.style.opacity = String(Math.min(opacity, 1));
+        if (opacity < 1) requestAnimationFrame(fadeIn);
+      };
+      fadeIn();
     };
 
-    const reversePlay = (timestamp?: number) => {
-      if (!video || videoDirectionRef.current !== -1) return;
-      
-      if (lastTime !== null && timestamp) {
-        // Calculate real delta time in seconds
-        const deltaTime = (timestamp - lastTime) / 1000;
-        video.currentTime -= deltaTime;
-      }
-      lastTime = timestamp || performance.now();
-      
-      if (video.currentTime <= 0) {
-        // Reached beginning, play forward again
-        video.currentTime = 0;
-        videoDirectionRef.current = 1;
-        video.play();
-      } else {
-        animationId = requestAnimationFrame(reversePlay);
-      }
-    };
-
+    video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('ended', handleEnded);
 
     return () => {
+      video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('ended', handleEnded);
-      if (animationId) cancelAnimationFrame(animationId);
     };
   }, []);
 
