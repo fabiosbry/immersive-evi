@@ -52,8 +52,6 @@ export default function ImmersiveEVI() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const interruptCooldownRef = useRef<boolean>(false);
   const micUnmuteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const mobileVideoRef = useRef<HTMLVideoElement>(null);
-  const videoDirectionRef = useRef<1 | -1>(1);
 
   const isConnected = readyState === VoiceReadyState.OPEN;
   
@@ -69,44 +67,6 @@ export default function ImmersiveEVI() {
     }
   }, [isConnected]);
 
-  // Smooth loop for mobile video - fade out at end, restart with fade in
-  useEffect(() => {
-    const video = mobileVideoRef.current;
-    if (!video) return;
-
-    const handleTimeUpdate = () => {
-      // Start fading out 1 second before end
-      if (video.duration && video.currentTime > video.duration - 1) {
-        const fadeProgress = (video.duration - video.currentTime);
-        video.style.opacity = String(fadeProgress);
-      } else {
-        video.style.opacity = '1';
-      }
-    };
-
-    const handleEnded = () => {
-      // Fade in from beginning
-      video.style.opacity = '0';
-      video.currentTime = 0;
-      video.play();
-      // Smooth fade in
-      let opacity = 0;
-      const fadeIn = () => {
-        opacity += 0.05;
-        video.style.opacity = String(Math.min(opacity, 1));
-        if (opacity < 1) requestAnimationFrame(fadeIn);
-      };
-      fadeIn();
-    };
-
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    video.addEventListener('ended', handleEnded);
-
-    return () => {
-      video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('ended', handleEnded);
-    };
-  }, []);
 
   // Process messages from Hume
   useEffect(() => {
@@ -318,10 +278,10 @@ export default function ImmersiveEVI() {
         <source src="/video.mov" type="video/mp4" />
       </video>
       
-      {/* Mobile background video - portrait optimized, zoomed to fill, ping-pong loop */}
+      {/* Mobile background video - portrait optimized, zoomed to fill, boomerang loop */}
       <video
-        ref={mobileVideoRef}
         autoPlay
+        loop
         muted
         playsInline
         className="md:hidden absolute inset-0 w-full h-full object-cover z-0 scale-110"
