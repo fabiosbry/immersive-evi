@@ -189,6 +189,10 @@ export default function ImmersiveEVI() {
     
     setTimeout(() => {
       unmute();
+      // Reset system prompt to normal after the interrupt turn
+      sendSessionSettings({
+        systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF.`,
+      });
       setTimeout(() => {
         interruptCooldownRef.current = false;
       }, 1000);
