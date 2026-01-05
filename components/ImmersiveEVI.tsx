@@ -48,6 +48,7 @@ export default function ImmersiveEVI() {
   const [currentEmotions, setCurrentEmotions] = useState<{ name: string; score: number }[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [showHeadphoneTip, setShowHeadphoneTip] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const interruptCooldownRef = useRef<boolean>(false);
   const micUnmuteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -56,10 +57,15 @@ export default function ImmersiveEVI() {
 
   const isConnected = readyState === VoiceReadyState.OPEN;
   
-  // Reset connecting state when connected
+  // Reset connecting state when connected + show headphone tip on mobile
   useEffect(() => {
     if (isConnected) {
       setIsConnecting(false);
+      // Show headphone tip on mobile only
+      if (window.innerWidth < 768) {
+        setShowHeadphoneTip(true);
+        setTimeout(() => setShowHeadphoneTip(false), 5000);
+      }
     }
   }, [isConnected]);
 
@@ -595,6 +601,27 @@ export default function ImmersiveEVI() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Headphone tip for mobile */}
+        <AnimatePresence>
+          {showHeadphoneTip && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="md:hidden absolute top-24 left-4 right-4"
+            >
+              <div 
+                className="glass rounded-xl px-4 py-3 text-center cursor-pointer"
+                onClick={() => setShowHeadphoneTip(false)}
+              >
+                <p className="text-white/70 text-xs font-body">
+                  🎧 Use headphones for best experience
+                </p>
               </div>
             </motion.div>
           )}
