@@ -154,7 +154,7 @@ export default function ImmersiveEVI() {
         setMode("quick");
         sendSessionSettings({
           context: {
-            text: "Keep responses very brief and concise. Answer in 1 short sentence, maximum 2 sentences.",
+            text: "Keep responses very brief and concise. Answer in 1 brief sentence only.",
             type: "editable" as any,
           },
         });
@@ -182,17 +182,21 @@ export default function ImmersiveEVI() {
     interruptCooldownRef.current = true;
     mute();
     
-    sendSessionSettings({
-      systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
-    });
+    if (readyState === VoiceReadyState.OPEN) {
+      sendSessionSettings({
+        systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
+      });
+    }
     
     setTimeout(() => {
       unmute();
       
       // Reset system prompt to normal after the interrupt turn
-      sendSessionSettings({
-        systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF.`,
-      });
+      if (readyState === VoiceReadyState.OPEN) {
+        sendSessionSettings({
+          systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF.`,
+        });
+      }
       
       setTimeout(() => {
         interruptCooldownRef.current = false;
