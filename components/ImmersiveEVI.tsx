@@ -1,7 +1,7 @@
 "use client";
 
 import { useVoice, VoiceReadyState } from "@humeai/voice-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, X } from "lucide-react";
 
@@ -11,13 +11,18 @@ interface Message {
   emotions?: { name: string; score: number }[];
   timestamp: Date;
   hidden?: boolean;
+  isInterrupt?: boolean;
 }
 
-// Keywords for instant detection
+// Keywords for PAUSE, QUICK, DETAILED modes only (NOT for interrupt)
 const PAUSE_KEYWORDS = ["hold on", "wait", "one second", "let me think", "give me a moment", "pause"];
 const QUICK_KEYWORDS = ["quick", "brief", "short", "hurry", "rush", "fast"];
 const DETAILED_KEYWORDS = ["detail", "explain", "more time", "elaborate", "in depth", "how does that work", "what do you mean"];
-const INTERRUPT_KEYWORDS = ["interrupt me", "lost", "uhm uhm", "yesterday"];
+
+// LLM Judge configuration
+const JUDGE_DEBOUNCE_MS = 400;
+const MIN_WORDS_FOR_JUDGE = 8;
+const MIN_SPEAKING_TIME_S = 1.5;
 
 export default function ImmersiveEVI() {
   const {
@@ -26,6 +31,7 @@ export default function ImmersiveEVI() {
     readyState,
     messages,
     sendSessionSettings,
+    sendAssistantInput,
     pauseAssistant,
     resumeAssistant,
     isMuted,
@@ -49,23 +55,152 @@ export default function ImmersiveEVI() {
   const [showTranscript, setShowTranscript] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [showHeadphoneTip, setShowHeadphoneTip] = useState(false);
+  const [isInterrupting, setIsInterrupting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const interruptCooldownRef = useRef<boolean>(false);
   const micUnmuteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // LLM Judge state
+  const chatIdRef = useRef<string | null>(null);
+  const turnStartTimeRef = useRef<number>(0);
+  const lastJudgeTimeRef = useRef<number>(0);
+  const judgeAbortControllerRef = useRef<AbortController | null>(null);
+  const conversationHistoryRef = useRef<{ role: string; content: string }[]>([]);
+  const interruptCooldownRef = useRef<boolean>(false);
 
   const isConnected = readyState === VoiceReadyState.OPEN;
   
-  // Reset connecting state when connected + show headphone tip on mobile
   useEffect(() => {
     if (isConnected) {
       setIsConnecting(false);
-      // Show headphone tip on mobile only
       if (window.innerWidth < 768) {
         setShowHeadphoneTip(true);
         setTimeout(() => setShowHeadphoneTip(false), 5000);
       }
     }
   }, [isConnected]);
+
+  // Track isInterrupting in a ref to avoid useEffect dependency issues
+  const isInterruptingRef = useRef(false);
+  useEffect(() => {
+    isInterruptingRef.current = isInterrupting;
+  }, [isInterrupting]);
+
+  // LLM Judge for INTERRUPT detection
+  const callLLMJudge = useCallback(async (speech: string) => {
+    if (interruptCooldownRef.current || isInterruptingRef.current) return;
+    
+    const wordCount = speech.split(/\s+/).filter(Boolean).length;
+    if (wordCount < MIN_WORDS_FOR_JUDGE) return;
+    
+    const speakingTime = (Date.now() - turnStartTimeRef.current) / 1000;
+    if (speakingTime < MIN_SPEAKING_TIME_S) return;
+    
+    // Debounce
+    const now = Date.now();
+    if (now - lastJudgeTimeRef.current < JUDGE_DEBOUNCE_MS) return;
+    lastJudgeTimeRef.current = now;
+    
+    // Cancel pending request
+    if (judgeAbortControllerRef.current) {
+      judgeAbortControllerRef.current.abort();
+    }
+    judgeAbortControllerRef.current = new AbortController();
+    
+    try {
+      const response = await fetch("/api/judge-speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          speech,
+          conversationHistory: conversationHistoryRef.current.slice(-4),
+          speakingTime,
+        }),
+        signal: judgeAbortControllerRef.current.signal,
+      });
+      
+      if (!response.ok) return;
+      
+      const { interrupt, message, reason, stats } = await response.json();
+      console.log(`🤖 LLM Judge: ${interrupt ? "INTERRUPT" : "continue"}`, { reason, stats });
+      
+      if (interrupt && message && chatIdRef.current) {
+        triggerInterrupt(message);
+      }
+    } catch (error) {
+      if ((error as Error).name !== "AbortError") {
+        console.warn("LLM Judge error:", error);
+      }
+    }
+  }, []);
+
+  // Trigger interrupt with LLM-generated message  
+  async function triggerInterrupt(message: string) {
+    if (!chatIdRef.current || isInterruptingRef.current) return;
+    
+    console.log("🛑 INTERRUPT triggered");
+    console.log("📢 Message:", message);
+    
+    interruptCooldownRef.current = true;
+    isInterruptingRef.current = true;
+    setIsInterrupting(true);
+    
+    // 1. Mute user IMMEDIATELY to stop audio going to EVI
+    mute();
+    console.log("🔇 User muted");
+    
+    // 2. PAUSE assistant to CANCEL its pending response
+    pauseAssistant();
+    console.log("⏸️ Assistant paused (canceling EVI response)");
+    
+    // 3. Small delay to ensure pause takes effect
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // 4. Send our message via REST API (assistant_input bypasses pause)
+    try {
+      const response = await fetch("/api/send-assistant-input", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chatId: chatIdRef.current,
+          text: message,
+        }),
+      });
+      if (response.ok) {
+        console.log("✅ assistant_input sent");
+      } else {
+        console.warn("REST API failed:", response.status);
+      }
+    } catch (err) {
+      console.error("REST API error:", err);
+    }
+    
+    // 5. Add to conversation history (regardless of API response)
+    conversationHistoryRef.current.push({ role: "assistant", content: message });
+    setConversation((prev) => [
+      ...prev,
+      { role: "assistant", content: message, timestamp: new Date(), isInterrupt: true }
+    ]);
+    
+    // 6. Resume assistant AFTER the await (100ms delay)
+    setTimeout(() => {
+      resumeAssistant();
+      console.log("▶️ Assistant resumed");
+    }, 100);
+    
+    // 7. Unmute user after 4s
+    setTimeout(() => {
+      unmute();
+      isInterruptingRef.current = false;
+      setIsInterrupting(false);
+      console.log("🔊 User unmuted");
+      
+      // 8. Cooldown: prevent interrupts for 8s after this one
+      setTimeout(() => {
+        interruptCooldownRef.current = false;
+        console.log("✓ Interrupt cooldown ended");
+      }, 8000);
+    }, 4000);
+  }
 
   // Process messages from Hume
   useEffect(() => {
@@ -74,8 +209,17 @@ export default function ImmersiveEVI() {
     const lastMessage = messages[messages.length - 1];
     if (!("type" in lastMessage)) return;
 
+    // Capture chat ID
+    if (lastMessage.type === "chat_metadata") {
+      const chatId = (lastMessage as any).chatId;
+      if (chatId) {
+        chatIdRef.current = chatId;
+        console.log("📝 Chat ID:", chatId.slice(0, 8) + "...");
+      }
+    }
+
     if (lastMessage.type === "user_interruption") {
-      console.log("🛑 user_interruption - stopping audio immediately");
+      console.log("🛑 user_interruption");
       muteAudio();
       setTimeout(() => unmuteAudio(), 100);
     }
@@ -83,6 +227,13 @@ export default function ImmersiveEVI() {
     if (lastMessage.type === "user_message") {
       const content = (lastMessage as any).message?.content || "";
       const emotions = extractEmotions(lastMessage);
+      const isInterim = (lastMessage as any).interim === true;
+      
+      // Track turn start
+      if (isInterim && turnStartTimeRef.current === 0) {
+        turnStartTimeRef.current = Date.now();
+        console.log("🎤 User speaking...");
+      }
       
       setConversation((prev) => {
         const lastConv = prev[prev.length - 1];
@@ -93,7 +244,20 @@ export default function ImmersiveEVI() {
       });
 
       setCurrentEmotions(emotions);
+      
+      // Keyword detection for modes (NOT interrupt)
       detectKeywords(content);
+      
+      // LLM Judge for interrupt (on interim messages)
+      if (isInterim && !isInterruptingRef.current) {
+        callLLMJudge(content);
+      }
+      
+      // Final message - track history
+      if (!isInterim && content) {
+        conversationHistoryRef.current.push({ role: "user", content });
+        turnStartTimeRef.current = 0;
+      }
     }
 
     if (lastMessage.type === "assistant_message") {
@@ -106,8 +270,18 @@ export default function ImmersiveEVI() {
         }
         return [...prev, { role: "assistant", content, timestamp: new Date(), hidden: isPaused }];
       });
+      
+      // Track history
+      if (content) {
+        const lastHistory = conversationHistoryRef.current[conversationHistoryRef.current.length - 1];
+        if (lastHistory?.role === "assistant") {
+          lastHistory.content += " " + content;
+        } else {
+          conversationHistoryRef.current.push({ role: "assistant", content });
+        }
+      }
     }
-  }, [messages]);
+  }, [messages, callLLMJudge, isPaused]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -128,21 +302,13 @@ export default function ImmersiveEVI() {
     }
   }
 
+  // Keyword detection for PAUSE, QUICK, DETAILED only
   function detectKeywords(text: string) {
     const lower = text.toLowerCase();
 
-    if (!interruptCooldownRef.current) {
-      for (const kw of INTERRUPT_KEYWORDS) {
-        if (lower.includes(kw)) {
-          triggerInterrupt(kw);
-          return;
-        }
-      }
-    }
-
     for (const kw of PAUSE_KEYWORDS) {
       if (lower.includes(kw) && !isPaused) {
-        console.log(`⏸️ PAUSE keyword detected: "${kw}"`);
+        console.log(`⏸️ PAUSE: "${kw}"`);
         triggerPause();
         return;
       }
@@ -150,7 +316,7 @@ export default function ImmersiveEVI() {
 
     for (const kw of QUICK_KEYWORDS) {
       if (lower.includes(kw) && mode !== "quick") {
-        console.log(`⚡ QUICK mode activated (keyword: "${kw}")`);
+        console.log(`⚡ QUICK mode: "${kw}"`);
         setMode("quick");
         sendSessionSettings({
           context: {
@@ -164,11 +330,11 @@ export default function ImmersiveEVI() {
 
     for (const kw of DETAILED_KEYWORDS) {
       if (lower.includes(kw) && mode !== "detailed") {
-        console.log(`📚 DETAILED mode activated (keyword: "${kw}")`);
+        console.log(`📚 DETAILED mode: "${kw}"`);
         setMode("detailed");
         sendSessionSettings({
           context: {
-            text: "Detailed mode: Answer in two sentences and include a quick example. Like if someone asks about coffee, say 'Coffee gives you energy because of caffeine. For example, a single espresso has about 60mg which kicks in after 20 minutes.'",
+            text: "Detailed mode: Answer in two sentences and include a quick example.",
             type: "editable" as any,
           },
         });
@@ -177,44 +343,27 @@ export default function ImmersiveEVI() {
     }
   }
   
-  function triggerInterrupt(keyword: string) {
-    console.log(`🛑 INTERRUPT triggered (keyword: "${keyword}")`);
-    interruptCooldownRef.current = true;
-    mute();
-    
-    sendSessionSettings({
-      systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
-    });
-    
-    setTimeout(() => {
-      unmute();
-      
-      // Reset system prompt to normal after the interrupt turn
-      sendSessionSettings({
-        systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF.`,
-      });
-      
-      setTimeout(() => {
-        interruptCooldownRef.current = false;
-      }, 1000);
-    }, 6000);
-  }
-  
   function triggerPause() {
-    console.log("⏸️ PAUSE triggered - muting EVI audio");
+    // Don't pause if we're in interrupt mode
+    if (isInterruptingRef.current) return;
+    
     muteAudio();
     mute();
     setIsPaused(true);
     
     if (micUnmuteTimeoutRef.current) clearTimeout(micUnmuteTimeoutRef.current);
     micUnmuteTimeoutRef.current = setTimeout(() => {
-      console.log("🎤 Mic unmuted - waiting for user to speak...");
-      unmute();
+      // Only unmute if not interrupting
+      if (!isInterruptingRef.current) {
+        unmute();
+      }
     }, 2000);
   }
 
   function handleResume() {
-    console.log("▶️ RESUME triggered - unmuting EVI audio");
+    // Don't resume if we're in interrupt mode
+    if (isInterruptingRef.current) return;
+    
     if (micUnmuteTimeoutRef.current) clearTimeout(micUnmuteTimeoutRef.current);
     unmuteAudio();
     unmute();
@@ -238,14 +387,11 @@ export default function ImmersiveEVI() {
   }, [messages, isPaused, isMuted]);
 
   async function handleConnect() {
-    if (isConnecting) return; // Prevent double-clicks
+    if (isConnecting) return;
     setIsConnecting(true);
     try {
-      // Fetch access token from our secure API route
       const response = await fetch("/api/hume-token");
-      if (!response.ok) {
-        throw new Error("Failed to get access token");
-      }
+      if (!response.ok) throw new Error("Failed to get access token");
       const { accessToken } = await response.json();
       
       const configId = process.env.NEXT_PUBLIC_HUME_CONFIG_ID;
@@ -259,13 +405,12 @@ export default function ImmersiveEVI() {
     }
   }
 
-  // Audio visualizer data - freeze when paused
   const visualizerBars = isConnected && !isPaused ? (isMuted ? fft : micFft) : [];
   const normalizedBars = visualizerBars.slice(0, 32).map((v, i) => Math.max(0.15, v));
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-black">
-      {/* Desktop background video - rotated 90° right */}
+      {/* Desktop background video */}
       <video
         autoPlay
         loop
@@ -283,7 +428,7 @@ export default function ImmersiveEVI() {
         <source src="/video.mov" type="video/mp4" />
       </video>
       
-      {/* Mobile background video - portrait optimized, zoomed to fill, boomerang loop */}
+      {/* Mobile background video */}
       <video
         autoPlay
         loop
@@ -294,12 +439,9 @@ export default function ImmersiveEVI() {
         <source src="/video-mobile.mp4" type="video/mp4" />
       </video>
 
-      {/* Dark overlay gradient */}
       <div className="absolute inset-0 video-overlay z-[1]" />
 
-      {/* Content layer */}
       <div className="relative z-10 h-full w-full flex flex-col">
-        {/* Header - Branding */}
         <header className="absolute top-0 left-0 right-0 pt-12 md:pt-8 px-4 md:px-8 pb-4 flex items-center justify-between">
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
@@ -321,10 +463,8 @@ export default function ImmersiveEVI() {
               </motion.div>
             )}
           </motion.div>
-
         </header>
 
-        {/* Center - Voice Interface */}
         <motion.div 
           className="flex-1 flex items-center justify-center px-4"
           animate={{ y: showTranscript ? -60 : 0 }}
@@ -332,7 +472,6 @@ export default function ImmersiveEVI() {
         >
           <AnimatePresence mode="wait">
             {!isConnected ? (
-              /* Idle State - Start Button */
               <motion.div
                 key="idle"
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -341,7 +480,6 @@ export default function ImmersiveEVI() {
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className="flex flex-col items-center gap-8"
               >
-                {/* Breathing button */}
                 <motion.button
                   onClick={handleConnect}
                   disabled={isConnecting}
@@ -351,14 +489,12 @@ export default function ImmersiveEVI() {
                   animate={isConnecting ? { scale: [1, 1.05, 1] } : {}}
                   transition={isConnecting ? { duration: 0.8, repeat: Infinity, ease: "easeInOut" } : {}}
                 >
-                  {/* Outer glow ring - spins when connecting */}
                   <motion.div 
                     className={`absolute inset-0 rounded-full ${isConnecting ? 'bg-white/10' : 'bg-white/5'}`}
                     animate={isConnecting ? { rotate: 360 } : {}}
                     transition={isConnecting ? { duration: 2, repeat: Infinity, ease: "linear" } : {}}
                   />
                   
-                  {/* Spinning ring when connecting */}
                   {isConnecting && (
                     <motion.div
                       className="absolute inset-[-4px] rounded-full border-2 border-transparent border-t-white/40"
@@ -367,7 +503,6 @@ export default function ImmersiveEVI() {
                     />
                   )}
                   
-                  {/* Main button */}
                   <motion.div 
                     className={`relative glass-strong rounded-full p-6 md:p-8 glow-subtle ${!isConnecting ? 'breathe-pulse' : ''}`}
                     animate={isConnecting ? { opacity: [1, 0.7, 1] } : {}}
@@ -376,7 +511,6 @@ export default function ImmersiveEVI() {
                     <Mic className={`w-10 h-10 md:w-12 md:h-12 ${isConnecting ? 'text-white/60' : 'text-white'}`} strokeWidth={1.5} />
                   </motion.div>
                   
-                  {/* Hover ring - only when not connecting */}
                   {!isConnecting && (
                     <motion.div 
                       className="absolute inset-0 rounded-full border border-white/20"
@@ -397,7 +531,6 @@ export default function ImmersiveEVI() {
                 </motion.p>
               </motion.div>
             ) : (
-              /* Active State - Visualizer */
               <motion.div
                 key="active"
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -406,9 +539,7 @@ export default function ImmersiveEVI() {
                 transition={{ duration: 0.5, ease: "easeOut" }}
                 className="flex flex-col items-center gap-8"
               >
-                {/* Listening visualizer container */}
                 <div className="relative">
-                  {/* Pulse rings */}
                   {isPlaying && !isPaused && (
                     <>
                       <motion.div
@@ -424,19 +555,20 @@ export default function ImmersiveEVI() {
                     </>
                   )}
                   
-                  {/* Main visualizer orb */}
                   <motion.div 
                     className="glass-strong rounded-full p-6 md:p-10 glow-subtle relative overflow-hidden"
                     animate={isPlaying && !isPaused ? { scale: [1, 1.02, 1] } : {}}
                     transition={{ duration: 0.5, repeat: Infinity }}
                   >
                     {isPaused ? (
-                      /* Waiting text when paused */
                       <div className="flex items-center justify-center h-12 w-24 md:h-16 md:w-32">
                         <span className="text-white/60 text-sm md:text-base font-body">waiting...</span>
                       </div>
+                    ) : isInterrupting ? (
+                      <div className="flex items-center justify-center h-12 w-24 md:h-16 md:w-32">
+                        <span className="text-white/60 text-sm md:text-base font-body">interrupting...</span>
+                      </div>
                     ) : (
-                      /* Audio bars */
                       <div className="flex items-center justify-center gap-[2px] md:gap-[3px] h-12 w-24 md:h-16 md:w-32">
                         {normalizedBars.map((value, i) => (
                           <motion.div
@@ -454,8 +586,6 @@ export default function ImmersiveEVI() {
                   </motion.div>
                 </div>
 
-
-                {/* Control buttons - just disconnect */}
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -475,7 +605,6 @@ export default function ImmersiveEVI() {
           </AnimatePresence>
         </motion.div>
 
-        {/* Transcript toggle button - desktop only */}
         {isConnected && conversation.length > 0 && (
           <motion.button
             initial={{ opacity: 0, y: 20 }}
@@ -487,7 +616,6 @@ export default function ImmersiveEVI() {
           </motion.button>
         )}
 
-        {/* Floating transcript panel - desktop only */}
         <AnimatePresence>
           {showTranscript && (
             <motion.div
@@ -524,7 +652,6 @@ export default function ImmersiveEVI() {
           )}
         </AnimatePresence>
 
-        {/* Error display */}
         <AnimatePresence>
           {error && (
             <motion.div
@@ -538,7 +665,6 @@ export default function ImmersiveEVI() {
           )}
         </AnimatePresence>
 
-        {/* Emotion indicators - hidden on mobile when transcript is open */}
         <AnimatePresence>
           {currentEmotions.length > 0 && isConnected && (
             <motion.div
@@ -573,7 +699,6 @@ export default function ImmersiveEVI() {
           )}
         </AnimatePresence>
 
-        {/* Headphone tip for mobile */}
         <AnimatePresence>
           {showHeadphoneTip && (
             <motion.div
