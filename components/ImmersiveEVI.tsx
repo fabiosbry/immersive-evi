@@ -148,14 +148,21 @@ export default function ImmersiveEVI() {
     mute();
     console.log("🔇 User muted");
     
-    // 2. PAUSE assistant to CANCEL its pending response
+    // 2. Pause assistant to cancel its pending response
     pauseAssistant();
-    console.log("⏸️ Assistant paused (canceling EVI response)");
+    console.log("⏸️ Assistant paused");
     
-    // 3. Small delay to ensure pause takes effect
-    await new Promise(resolve => setTimeout(resolve, 200));
+    // 3. Mute audio output to skip any remaining queued audio
+    muteAudio();
     
-    // 4. Send our message via REST API (assistant_input bypasses pause)
+    // 4. Wait for pause to fully take effect on server
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // 5. Resume assistant (clears the pause state)
+    resumeAssistant();
+    console.log("▶️ Assistant resumed");
+    
+    // 6. Send our message via REST API
     try {
       const response = await fetch("/api/send-assistant-input", {
         method: "POST",
@@ -166,7 +173,7 @@ export default function ImmersiveEVI() {
         }),
       });
       if (response.ok) {
-        console.log("✅ assistant_input sent");
+        console.log("✅ assistant_input sent via REST");
       } else {
         console.warn("REST API failed:", response.status);
       }
@@ -174,27 +181,26 @@ export default function ImmersiveEVI() {
       console.error("REST API error:", err);
     }
     
-    // 5. Add to conversation history (regardless of API response)
+    // 7. Small delay then unmute audio to hear our message
+    await new Promise(resolve => setTimeout(resolve, 200));
+    unmuteAudio();
+    console.log("🔊 Audio unmuted");
+    
+    // 8. Add to conversation history
     conversationHistoryRef.current.push({ role: "assistant", content: message });
     setConversation((prev) => [
       ...prev,
       { role: "assistant", content: message, timestamp: new Date(), isInterrupt: true }
     ]);
     
-    // 6. Resume assistant AFTER the await (100ms delay)
-    setTimeout(() => {
-      resumeAssistant();
-      console.log("▶️ Assistant resumed");
-    }, 100);
-    
-    // 7. Unmute user after 4s
+    // 9. Unmute user after 4s
     setTimeout(() => {
       unmute();
       isInterruptingRef.current = false;
       setIsInterrupting(false);
       console.log("🔊 User unmuted");
       
-      // 8. Cooldown: prevent interrupts for 8s after this one
+      // 10. Cooldown: prevent interrupts for 8s after this one
       setTimeout(() => {
         interruptCooldownRef.current = false;
         console.log("✓ Interrupt cooldown ended");
@@ -219,6 +225,12 @@ export default function ImmersiveEVI() {
     }
 
     if (lastMessage.type === "user_interruption") {
+      // Skip if we're in the middle of our own interrupt injection
+      if (isInterruptingRef.current) {
+        console.log("🛑 user_interruption (ignored - we're interrupting)");
+        return;
+      }
+      
       console.log("🛑 user_interruption");
       muteAudio();
       setTimeout(() => unmuteAudio(), 100);
