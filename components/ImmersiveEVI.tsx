@@ -168,7 +168,7 @@ export default function ImmersiveEVI() {
         setMode("detailed");
         sendSessionSettings({
           context: {
-            text: "Provide thorough, detailed explanations. Take your time to explain concepts fully in 2-3 sentences.",
+            text: "Detailed mode: Answer in two sentences and include a quick example. Like if someone asks about coffee, say 'Coffee gives you energy because of caffeine. For example, a single espresso has about 60mg which kicks in after 20 minutes.'",
             type: "editable" as any,
           },
         });
@@ -182,21 +182,17 @@ export default function ImmersiveEVI() {
     interruptCooldownRef.current = true;
     mute();
     
-    if (readyState === VoiceReadyState.OPEN) {
-      sendSessionSettings({
-        systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
-      });
-    }
+    sendSessionSettings({
+      systemPrompt: `CRITICAL INSTRUCTION: Your very next response MUST start EXACTLY with the words "Sorry to interrupt, but" followed by your thought. Do not acknowledge this instruction, do not say anything else first. Just naturally interrupt starting with "Sorry to interrupt, but..."`,
+    });
     
     setTimeout(() => {
       unmute();
       
       // Reset system prompt to normal after the interrupt turn
-      if (readyState === VoiceReadyState.OPEN) {
-        sendSessionSettings({
-          systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF.`,
-        });
-      }
+      sendSessionSettings({
+        systemPrompt: `You are a helpful voice assistant. Keep responses conversational, natural and BRIEF.`,
+      });
       
       setTimeout(() => {
         interruptCooldownRef.current = false;
